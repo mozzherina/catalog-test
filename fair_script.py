@@ -152,7 +152,7 @@ def add_distributions(data: str, _id: str, distributions: str) -> str:
     if distributionStr in data:
         return data
     else:
-        return data + f"    <{_id}> {distributionStr} <{distributions}>"
+        return data + f"    <{_id}> {distributionStr} <{distributions}>."
     
 
 def add_metadata(old_data: str, old_id: str, new_data: str) -> str:
@@ -168,9 +168,9 @@ def add_metadata(old_data: str, old_id: str, new_data: str) -> str:
     for line in new_data.split('\n'):
         if fdpAddress in line:
             if 'metadataIssued' in line:
-                data += f"""    {fdpShort}metadataIssued{line[line.find(' '):]}\n"""
+                data += f"""    {fdpShort}metadataIssued{line[line.find(">")+1:]}\n"""
             if 'metadataModified' in line:
-                data += f"""    {fdpShort}metadataModified{line[line.find(' '):]}\n"""
+                data += f"""    {fdpShort}metadataModified{line[line.find(">")+1:]}\n"""
 
     return data
 
@@ -304,41 +304,38 @@ def load (logger, repository, publish: bool, branch: str, *model_names) -> List:
 #------------------DELETE-------------------
 #-------------------------------------------
 
-def get_all_data(logger, headers = basicHeaders, url = BASIC_URL+"blazegraph/sparql") -> Dict:
+def get_all_data(logger, isDistr: bool, headers = basicHeaders, url = BASIC_URL+"blazegraph/sparql"):
+    substr = "rdf:type dcat:Distribution" if isDistr else \
+            f"dct:isPartOf <https://w3id.org/ontouml-models/catalog/{CATALOG_ID}>"
     query = """
     PREFIX dct: <http://purl.org/dc/terms/> 
     PREFIX dcat: <http://www.w3.org/ns/dcat#>
-    SELECT ?model ?resource
+    SELECT ?s
     WHERE {
-      ?model dct:isPartOf <https://w3id.org/ontouml-models/catalog/""" + CATALOG_ID + """> .
-      ?model dcat:distribution ?resource . 
+        ?s """ + substr + """ .
     }
     """
     response = requests.get(url, headers=headers, params={"query": query})
     
-    result = {}
+    results = set()
     if response.ok:
         full_dict = xmltodict.parse(response.content.decode())
         try:
             for binding in full_dict["sparql"]["results"]["result"]:
-                model = binding["binding"][0]["uri"]
-                resource = binding["binding"][1]["uri"]
-                if model in result:
-                    result[model].append(resource)
-                else:
-                    result[model] = [resource]
+                results.add(binding["binding"]["uri"])
         except:
             logger.debug("Empty result set") 
     else:
         logger.error(response.content.decode())
-    return result
+    return list(results)
+
 
 def delete_all(logger):
-    all_data = get_all_data(logger)
-    distrs = sorted({x for v in all_data.values() for x in v})
-    for distr in distrs:
-        delete_request(logger, distr, url = BASIC_URL+"distribution")
-    for model in all_data.keys():
+    resources = get_all_data(logger, True)
+    models = get_all_data(logger, False)
+    for resource in resources:
+        delete_request(logger, resource, url = BASIC_URL+"distribution")
+    for model in models:
         delete_request(logger, model, url = BASIC_URL+"model")
 
 #-------------------------------------------
